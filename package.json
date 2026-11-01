@@ -1,0 +1,9 @@
+{
+  "name": "elemental-ctf-server",
+  "version": "1.0.0",
+  "description": "Servidor de salas y sincronizacion para Elemental CTF (LAN / online)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "ws": "^8.18.0" },
+  "engines": { "node": ">=18" }
+}
