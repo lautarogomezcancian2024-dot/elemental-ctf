@@ -1628,7 +1628,7 @@ const se=$('otEl');if(se)se.onchange=()=>{OTM='';OTW&&OTW.readyState==1&&OTW.sen
 $('tnGo').style.display='none';$('tnExit').textContent='Salir del torneo'}
 function otConnect(){show('tnb');$('tnBr').innerHTML='<p style="text-align:center">Conectando al torneo…</p>';$('tnMsg').innerHTML='';$('tnGo').style.display='none';
 const ws=new WebSocket(OT.url);OTW=ws;ws.onopen=()=>ws.send(JSON.stringify({t:'rejoin',room:OT.room,token:OT.token}));
-ws.onmessage=ev=>{const m=JSON.parse(ev.data);if(m.t=='tnb'){OTB=m;OTB.t0=Date.now();OTM='';otRender()}
+ws.onmessage=ev=>{const m=JSON.parse(ev.data);if(m.t=='pg'){ws.send(JSON.stringify({t:'pn',ts:m.ts}));return}if(m.t=='tnb'){OTB=m;OTB.t0=Date.now();OTM='';otRender()}
 else if(m.t=='dr'){OTD=m;OTD.t0=Date.now();if(m.i!=OTDi){OTDi=m.i;OTDsel=null}show('tnd');otDrRender()}
 else if(m.t=='start'){try{sessionStorage.setItem('ectf_net',JSON.stringify({url:OT.url,room:OT.room,pid:OT.pid,token:OT.token,start:m}))}catch(e){}location.reload()}
 else if(m.t=='err'){OTM=m.m;otRender();if(!OTB)$('tnBr').innerHTML='<p style="text-align:center;color:#ffb3b3">'+esc(m.m)+'</p>'}};
@@ -1854,7 +1854,7 @@ $('nBack').onclick=()=>show('menu');
 $('nLeave').onclick=()=>{NC.starting=1;try{NC.ws.close()}catch(e){}NC.starting=0;$('netL').style.display='none';$('netC').style.display='';$('nMsg').textContent=''};
 $('nGo').onclick=()=>{const url=$('nUrl').value.trim(),room=($('nRoom').value.trim()||'sala1'),name=($('nName').value.trim()||'Jugador');svv('ectf_url',url);svv('ectf_name',name);$('nMsg').textContent='Conectando...';let ws;try{ws=new WebSocket(url)}catch(e){$('nMsg').textContent='Dirección inválida';return}
 NC.ws=ws;NC.url=url;NC.room=room;NC.starting=0;ws.onopen=()=>ws.send(JSON.stringify({t:'join',room,name,mode:$('nMode').value}));
-ws.onmessage=ev=>lobMsg(JSON.parse(ev.data));
+ws.onmessage=ev=>{const m=JSON.parse(ev.data);if(m.t=='pg'){ws.send(JSON.stringify({t:'pn',ts:m.ts}));return}lobMsg(m)};
 ws.onclose=()=>{if(!NC.starting){$('nMsg').textContent='Desconectado del servidor';$('netL').style.display='none';$('netC').style.display=''}};
 ws.onerror=()=>{$('nMsg').textContent='No se pudo conectar al servidor (¿está encendido? ¿ws:// o wss:// correcto?)'}};
 function lobMsg(m){if(m.t=='welcome'){NC.pid=m.pid;NC.token=m.token}else if(m.t=='err'){$('nMsg').textContent=m.m}else if(m.t=='lobby'){NC.lob=m;drawLobby()}else if(m.t=='tn0'){NC.starting=1;try{sessionStorage.setItem('ectf_ot',JSON.stringify({url:NC.url,room:NC.room,pid:NC.pid,token:NC.token}))}catch(e){}location.reload()}
@@ -1874,6 +1874,7 @@ $('nBots').onchange=()=>nsend({t:'opts',bots:$('nBots').checked});$('nTS').oncha
 if(NET){show('');(ov.firstElementChild.className='',ov.firstElementChild).innerHTML='<h1>Esperando a los demás jugadores...</h1>';ov.style.display='flex';
 const D=NET.start.delay,ws=new WebSocket(NET.url);NET.ws=ws;ws.onopen=()=>ws.send(JSON.stringify({t:'rejoin',room:NET.room,token:NET.token,mid:NET.start.mid}));
 ws.onmessage=ev=>{const m=JSON.parse(ev.data);
+if(m.t=='pg'){ws.send(JSON.stringify({t:'pn',ts:m.ts}));return}
 if(m.t=='start'&&NET.start.tn){try{sessionStorage.setItem('ectf_net',JSON.stringify({url:NET.url,room:NET.room,pid:NET.pid,token:NET.token,start:m}))}catch(e){}location.reload();return}
 if(m.t=='go'){for(const pid of m.absent||[]){const u=U.find(e=>e.pid==pid);if(u)u.human=0}for(let n=0;n<D;n++)netSend(n);started=true;(ov.firstElementChild.className='',ov.firstElementChild).innerHTML='<h1>¡Partida lista!</h1><p>Hacé click para jugar</p>'}
 else if(m.t=='f')FRAMES.set(m.n,m);else if(m.t=='desync')say('⚠ Desincronización detectada (tick '+m.n+')');else if(m.t=='err')say(m.m)};

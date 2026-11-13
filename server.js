@@ -62,7 +62,10 @@ function delayFor(r, pids) {
   let worst = 0, jit = 0;
   for (const pid of pids) {
     const p = r.players.get(pid);
-    if (p && p.ws && p.ws.rtts && p.ws.rtts.length) { const a = p.ws.rtts; const mx = Math.max(...a), mn = Math.min(...a); worst = Math.max(worst, mx); jit = Math.max(jit, mx - mn); }
+    if (!p || !p.ws) continue;
+    const a = p.ws.art && p.ws.art.length ? p.ws.art : null; // ping real medido por el juego (el del protocolo lo contesta el proxy de Render y da ~1 ms)
+    if (a) { const mx = Math.max(...a), mn = Math.min(...a); worst = Math.max(worst, mx); jit = Math.max(jit, mx - mn); }
+    else { worst = Math.max(worst, 120); jit = Math.max(jit, 40); }
   }
   // colchon contra la variacion del ping (jitter): menos tirones a cambio de unos ms de retraso
   return { worst, delay: Math.min(24, Math.max(DELAY, Math.ceil((worst * 1.15 + jit * 1.5 + 55) / 16.7))) };
@@ -250,10 +253,12 @@ function anyConnected(r) { return humans(r).some(p => p.ws && p.ws.readyState ==
 
 wss.on('connection', ws => {
   ws.missed = 0; ws.rtts = [];
+  ws.art = [];
   ws.on('pong', () => { ws.missed = 0; ws.rtts.push(Date.now() - ws.pt); if (ws.rtts.length > 8) ws.rtts.shift(); });
   let room = null, player = null;
   ws.on('message', raw => {
     let m; try { m = JSON.parse(raw); } catch (e) { return; }
+    if (m.t === 'pn') { if (Number.isFinite(m.ts)) { const v = Date.now() - m.ts; if (v >= 0 && v < 5000) { ws.art.push(v); if (ws.art.length > 8) ws.art.shift(); } } return; }
     if (m.t === 'join') {
       const code = String(m.room || 'sala1').slice(0, 12);
       const r = getRoom(code, m.mode);
@@ -361,7 +366,7 @@ wss.on('connection', ws => {
     }
   });
 });
-setInterval(() => { for (const ws of wss.clients) { if (ws.missed > 10) { ws.terminate(); continue; } ws.missed++; ws.pt = Date.now(); try { ws.ping(); } catch (e) {} } }, 2000);
+setInterval(() => { for (const ws of wss.clients) { if (ws.missed > 10) { ws.terminate(); continue; } ws.missed++; ws.pt = Date.now(); try { ws.ping(); ws.send(JSON.stringify({ t: 'pg', ts: Date.now() })); } catch (e) {} } }, 2000);
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('Patdera - servidor listo en el puerto ' + PORT);
