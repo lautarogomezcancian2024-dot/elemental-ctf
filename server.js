@@ -68,7 +68,7 @@ function delayFor(r, pids) {
     else { worst = Math.max(worst, 120); jit = Math.max(jit, 40); }
   }
   // colchon contra la variacion del ping (jitter): menos tirones a cambio de unos ms de retraso
-  return { worst, delay: Math.min(24, Math.max(DELAY, Math.ceil((worst * 1.15 + jit * 1.5 + 55) / 16.7))) };
+  return { worst, delay: Math.min(24, Math.max(DELAY, Math.ceil((worst * 1.05 + jit * 1.5 + 35) / 16.7))) };
 }
 function launch(r, mt, size, slots, extra) {
   const d = delayFor(r, mt.players);
