@@ -5,7 +5,7 @@ const http = require('http'), fs = require('fs'), path = require('path'), os = r
 const { WebSocketServer } = require('ws');
 
 const PORT = +process.env.PORT || 3000;
-const DELAY = Math.max(1, +process.env.DELAY || 3); // minimo; el servidor lo sube solo segun el ping de los jugadores
+const DELAY = Math.max(1, +process.env.DELAY || 5); // minimo; el servidor lo sube solo segun el ping de los jugadores
 const MAXP = 8, MAXP_TN = 16;
 const ALL = ['fire','water','earth','wind','swords','clubs','gold','cups','rabbit','ferret','horse','spider','psu','wifi','monitor','speaker','luz','pombero','jasy','gual','momia','garg','draugr','tupi'];
 const STATIC = { '/': 'index.html', '/index.html': 'index.html', '/three.min.js': 'three.min.js' };
@@ -23,6 +23,7 @@ const server = http.createServer((req, res) => {
   });
 });
 const wss = new WebSocketServer({ server, perMessageDeflate: false, maxPayload: 64 * 1024 });
+server.on('connection', sock => { try { sock.setNoDelay(true); } catch (e) {} }); // sin algoritmo de Nagle: los paquetes chicos salen al instante
 
 const rooms = new Map();
 let nextPid = 1;
@@ -58,9 +59,13 @@ function mkMatch(r, players) {
   return mt;
 }
 function delayFor(r, pids) {
-  let worst = 0;
-  for (const pid of pids) { const p = r.players.get(pid); if (p && p.ws && p.ws.rtts && p.ws.rtts.length) worst = Math.max(worst, ...p.ws.rtts); }
-  return { worst, delay: Math.min(24, Math.max(DELAY, Math.ceil((worst + 40) / 16.7))) };
+  let worst = 0, jit = 0;
+  for (const pid of pids) {
+    const p = r.players.get(pid);
+    if (p && p.ws && p.ws.rtts && p.ws.rtts.length) { const a = p.ws.rtts; const mx = Math.max(...a), mn = Math.min(...a); worst = Math.max(worst, mx); jit = Math.max(jit, mx - mn); }
+  }
+  // colchon contra la variacion del ping (jitter): menos tirones a cambio de unos ms de retraso
+  return { worst, delay: Math.min(24, Math.max(DELAY, Math.ceil((worst * 1.15 + jit * 1.5 + 55) / 16.7))) };
 }
 function launch(r, mt, size, slots, extra) {
   const d = delayFor(r, mt.players);
@@ -165,26 +170,65 @@ function startRound(r) {
     if (!ha.length && !hb.length) { m[2] = Math.random() < .5 ? a : b; return; }
     const mt = mkMatch(r, [...ha, ...hb].map(p => p.pid)); mt.teams = [a, b]; mt.mi = mi;
     T.mids[mi] = mt.id;
-    const slots = [];
-    [[a, ha], [b, hb]].forEach(([tid, hs], side) => {
-      const used = new Set(hs.map(p => p.el));
-      const team = hs.sort((x, y) => x.pid - y.pid).map(p => ({ team: side, el: p.el, pid: p.pid, name: p.name }));
-      while (team.length < 2) {
-        const pool = ALL.filter(e => !used.has(e));
-        const e = pool[Math.floor(Math.random() * pool.length)];
-        used.add(e); team.push({ team: side, el: e, pid: null });
-      }
-      team.forEach((s, i) => { s.last = i === team.length - 1 ? 1 : 0; slots.push(s); });
-    });
     for (const pid of mt.players) { const p = r.players.get(pid); if (p) p.inMatch = true; }
-    launch(r, mt, 2, slots, { tn: { rn, final: fin, names: [T.teams[a].n, T.teams[b].n] } });
+    startDraft(r, mt, { rn, final: fin, names: [T.teams[a].n, T.teams[b].n], hs: [ha, hb].map(h => h.slice().sort((x, y) => x.pid - y.pid)) });
   });
   bcastTn(r);
   checkRound(r);
 }
+/* ---------- baneos y picks (draft) de cada partida del torneo ---------- */
+const DRAFT_MS = 25000, BOT_MS = 1100;
+function drAvail(D) { const used = new Set([...D.bans.filter(Boolean), ...D.picks[0], ...D.picks[1]]); return ALL.filter(e => !used.has(e)); }
+function drActor(D) {
+  const q = D.seq[D.i]; if (!q) return null;
+  const side = q[1], h = D.hs[side];
+  const p = q[0] === 'ban' ? h[0] : h[D.picks[side].length];
+  return p ? p.pid : null;
+}
+function drMsg(D, mt) {
+  const q = D.seq[D.i];
+  return { t: 'dr', mid: mt.id, rn: D.rn, final: D.final, names: D.names, hs: D.hs.map(h => h.map(p => ({ pid: p.pid, name: p.name }))), bans: D.bans, picks: D.picks, seq: D.seq, i: D.i, actor: drActor(D), left: D.left > 0 ? Math.max(0, D.left - Date.now()) : 0, last: D.last || null, done: D.i >= D.seq.length };
+}
+function drStep(r, mt) {
+  const D = mt.dr; if (!D) return;
+  clearTimeout(D.timer);
+  if (D.i >= D.seq.length) { D.left = 0; bcastM(r, mt, drMsg(D, mt)); D.timer = setTimeout(() => drFinish(r, mt), 1800); return; }
+  const actor = drActor(D);
+  const ms = actor == null ? BOT_MS : DRAFT_MS;
+  D.left = actor == null ? 0 : Date.now() + ms;
+  bcastM(r, mt, drMsg(D, mt));
+  D.timer = setTimeout(() => { const a = drAvail(D); drApply(r, mt, a[Math.floor(Math.random() * a.length)]); }, ms);
+}
+function drApply(r, mt, el) {
+  const D = mt.dr; if (!D || D.i >= D.seq.length) return;
+  const q = D.seq[D.i];
+  if (q[0] === 'ban') { D.bans[q[1]] = el; D.last = 'b' + q[1]; }
+  else { D.last = 'p' + q[1] + D.picks[q[1]].length; D.picks[q[1]].push(el); }
+  D.i++;
+  drStep(r, mt);
+}
+function drFinish(r, mt) {
+  const D = mt.dr; if (!D) return;
+  const slots = [];
+  for (let side = 0; side < 2; side++) {
+    for (let j = 0; j < 2; j++) {
+      const h = D.hs[side][j];
+      slots.push({ team: side, el: D.picks[side][j], pid: h ? h.pid : null, name: h ? h.name : undefined, last: j === 1 ? 1 : 0 });
+    }
+  }
+  mt.dr = null; mt.state = 'wait';
+  launch(r, mt, 2, slots, { tn: { rn: D.rn, final: D.final, names: D.names, ban: D.bans } });
+}
+function startDraft(r, mt, info) {
+  const f = r.tn.r % 2 === 0 ? 0 : 1, sc = 1 - f;
+  mt.state = 'draft';
+  mt.dr = Object.assign({ bans: [null, null], picks: [[], []], seq: [['ban', 0], ['ban', 1], ['pick', f], ['pick', sc], ['pick', sc], ['pick', f]], i: 0, left: 0, timer: null, last: null }, info);
+  drStep(r, mt);
+}
+
 function matchDone(r, mt) {
   if (mt.state === 'done') return;
-  mt.state = 'done'; clearTimeout(mt.timer);
+  mt.state = 'done'; clearTimeout(mt.timer); if (mt.dr) { clearTimeout(mt.dr.timer); mt.dr = null; }
   for (const pid of mt.players) { const p = r.players.get(pid); if (p) p.inMatch = false; }
   const T = r.tn;
   if (T && mt.teams && mt.res != null) { const m = T.rounds[T.r][mt.mi]; if (m && m[2] == null) m[2] = mt.teams[mt.res]; }
@@ -243,6 +287,7 @@ wss.on('connection', ws => {
       } else if (r.mode === 'tn' && r.tn) {
         send(ws, { t: 'welcome', pid: p.pid, token: p.token, mode: 'tn' });
         send(ws, tnBracketMsg(r));
+        for (const mt of r.matches.values()) if (mt.dr && mt.players.has(p.pid)) send(ws, drMsg(mt.dr, mt));
       }
     } else if (!room || !player) {
       return;
@@ -287,6 +332,12 @@ wss.on('connection', ws => {
         if (vals.some(v => v !== vals[0])) bcastM(room, mt, { t: 'desync', n: m.n });
         mt.hashes.delete(m.n);
       }
+    } else if (m.t === 'dpick' && room.mode === 'tn') {
+      const mt = room.matches.get(m.mid);
+      if (!mt || !mt.dr || !mt.players.has(player.pid) || mt.dr.i >= mt.dr.seq.length) return;
+      if (drActor(mt.dr) !== player.pid) return send(ws, { t: 'err', m: 'No es tu turno' });
+      if (!drAvail(mt.dr).includes(m.el)) return send(ws, { t: 'err', m: 'Ese personaje no está disponible' });
+      drApply(room, mt, m.el);
     } else if (m.t === 'res' && room.mode === 'tn') {
       const mt = room.matches.get(m.mid);
       if (!mt || !mt.players.has(player.pid) || mt.state === 'done' || (m.w !== 0 && m.w !== 1)) return;

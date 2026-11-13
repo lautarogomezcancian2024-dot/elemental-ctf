@@ -232,8 +232,8 @@ body:not(.ig) #hud,body:not(.ig) #hbd,body:not(.ig) #tm,body:not(.ig) #mini,body
 <button id="nGo">Conectar</button><button id="nBack">Volver</button></div>
 <div id="netL" style="display:none"><div id="nRoomT" style="opacity:.7"></div>
 <div id="nTeams" style="display:flex;gap:30px;justify-content:center;margin:8px 0"></div>
-<div style="font-size:14px;opacity:.8">Tu personaje (no puede repetirse en tu equipo)</div><div id="nEls" style="display:flex;flex-wrap:wrap;justify-content:center;gap:6px;max-width:700px;margin:6px auto"></div>
-<div><button id="nTeam">Cambiar de equipo</button></div>
+<div id="nElsL" style="font-size:14px;opacity:.8">Tu personaje (no puede repetirse en tu equipo)</div><div id="nEls" style="display:flex;flex-wrap:wrap;justify-content:center;gap:6px;max-width:700px;margin:6px auto"></div>
+<div id="nTeamW"><button id="nTeam">Cambiar de equipo</button></div>
 <div id="nOpts" style="margin:6px"><label><input type="checkbox" id="nBots"> Llenar con bots</label> &nbsp; Jugadores por equipo: <select id="nTS"><option>3</option><option>4</option></select></div>
 <div><button id="nStart">Empezar partida</button><button id="nLeave">Salir</button></div></div>
 <p id="nMsg" style="color:#ffb3b3;min-height:1.4em"></p></div></div>
@@ -1622,17 +1622,30 @@ if(B.st=='done')msg='<div class="tvs">'+(B.champ==me_?'¡CAMPEONES DEL TORNEO!':
 else if(!alive)msg='<div class="tvs">Tu equipo quedó eliminado</div><div><small>Mirá cómo sigue el cuadro</small></div>';
 else if(B.st=='between')msg='<div><small>'+TN_R[cur]+'</small><b>empieza en '+secs+' s</b></div><div class="tvs">Tu equipo<i>VS</i>'+(opp>=0?esc(B.teams[opp].n):'?')+'</div><div><small>Tiempo</small><b>'+(cur==2?'5:00':'3:00')+'</b></div><div><small>Robar</small><b>'+(cur==2?2:1)+' 🚩</b></div>';
 else msg='<div class="tvs">Esperando a que terminen los otros partidos…</div>';
-let sel='';if(alive&&B.st!='done'&&B.st!='play'||alive&&B.st=='play'&&!Object.keys(B.mids||{}).length){const mp=B.teams[me_]&&B.teams[me_].ps.find(p=>p.pid==OT.pid),tk=new Set((B.teams[me_]?B.teams[me_].ps:[]).filter(p=>p.pid!=OT.pid).map(p=>p.el));if(mp)sel='<div style="margin-top:8px">Tu personaje: <select id="otEl">'+ALL.map(k=>'<option value="'+k+'"'+(k==mp.el?' selected':'')+(tk.has(k)?' disabled':'')+'>'+EL[k].n+'</option>').join('')+'</select></div>'}
+let sel='';if(alive&&B.st!='done'&&B.st!='play'||alive&&B.st=='play'&&!Object.keys(B.mids||{}).length){const mp=null,tk=new Set((B.teams[me_]?B.teams[me_].ps:[]).filter(p=>p.pid!=OT.pid).map(p=>p.el));if(mp)sel='<div style="margin-top:8px">Tu personaje: <select id="otEl">'+ALL.map(k=>'<option value="'+k+'"'+(k==mp.el?' selected':'')+(tk.has(k)?' disabled':'')+'>'+EL[k].n+'</option>').join('')+'</select></div>'}
 $('tnMsg').innerHTML='<div class="tpn tinfo">'+msg+'</div>'+sel+(OTM?'<p style="color:#ffb3b3">'+esc(OTM)+'</p>':'');
 const se=$('otEl');if(se)se.onchange=()=>{OTM='';OTW&&OTW.readyState==1&&OTW.send(JSON.stringify({t:'set',el:se.value}))};
 $('tnGo').style.display='none';$('tnExit').textContent='Salir del torneo'}
 function otConnect(){show('tnb');$('tnBr').innerHTML='<p style="text-align:center">Conectando al torneo…</p>';$('tnMsg').innerHTML='';$('tnGo').style.display='none';
 const ws=new WebSocket(OT.url);OTW=ws;ws.onopen=()=>ws.send(JSON.stringify({t:'rejoin',room:OT.room,token:OT.token}));
 ws.onmessage=ev=>{const m=JSON.parse(ev.data);if(m.t=='tnb'){OTB=m;OTB.t0=Date.now();OTM='';otRender()}
+else if(m.t=='dr'){OTD=m;OTD.t0=Date.now();if(m.i!=OTDi){OTDi=m.i;OTDsel=null}show('tnd');otDrRender()}
 else if(m.t=='start'){try{sessionStorage.setItem('ectf_net',JSON.stringify({url:OT.url,room:OT.room,pid:OT.pid,token:OT.token,start:m}))}catch(e){}location.reload()}
 else if(m.t=='err'){OTM=m.m;otRender();if(!OTB)$('tnBr').innerHTML='<p style="text-align:center;color:#ffb3b3">'+esc(m.m)+'</p>'}};
 ws.onclose=()=>{if(!OTQ)$('tnMsg').innerHTML='<p style="color:#ffb3b3">Se perdió la conexión con el servidor. Tocá "Salir del torneo".</p>'}}
-setInterval(()=>{if(OT&&OTB&&OTB.st=='between')otRender()},1000);
+let OTD=null,OTDsel=null,OTDi=-1;
+function otDrRender(){const D=OTD;if(!D)return;const mySide=D.hs[0].some(p=>p.pid==OT.pid)?0:1,mine=D.actor==OT.pid&&!D.done,secs=Math.max(0,Math.ceil((D.left-(Date.now()-D.t0))/1000));
+const bn=D.bans,tk=[...D.picks[0],...D.picks[1]],gr=$('tnDC');gr.innerHTML='';
+ALL.forEach(k=>{const src=document.querySelector('#selL .card[data-el="'+k+'"]');if(!src)return;const c=src.cloneNode(true);c.className='tcard'+(bn.includes(k)?' ban':'')+(tk.includes(k)?' off':'')+(OTDsel==k&&mine?' sel':'');c.onclick=()=>{if(!mine||bn.includes(k)||tk.includes(k))return;OTDsel=k;otDrRender()};gr.appendChild(c)});
+const q=D.seq[D.i],act=D.done||!q?'':(q[0]=='ban'?'b'+q[1]:'p'+q[1]+D.picks[q[1]].length);
+const ic=k=>{const e=document.querySelector('#selL .card[data-el="'+k+'"] svg');return e?e.outerHTML:''},cl=k=>'#'+EL[k].c.toString(16).padStart(6,'0');
+const sl=(id,k,cls,lab)=>{const pv=!k&&mine&&OTDsel&&id==act,kk=k||(pv?OTDsel:null);return'<div class="dsl '+cls+(k&&cls=='bn'?' on':'')+(id==act&&!k?' act':'')+(pv?' pv':'')+(D.last==id?' nw':'')+'"'+(kk?' style="--c:'+cl(kk)+'"':'')+'>'+(kk?ic(kk)+'<b>'+EL[kk].n+'</b>':'<span class="dq">?</span>')+'<small>'+lab+'</small></div>'};
+const tm=(sd,ttl)=>{const nm=[0,1].map(j=>D.hs[sd][j]?esc(D.hs[sd][j].name):'Bot');return'<div class="dtm dt'+(sd==mySide?0:1)+'"><small>'+ttl+'</small><div class="drw">'+sl('b'+sd,D.bans[sd],'bn','Bloqueo')+sl('p'+sd+'0',D.picks[sd][0],'pk',nm[0])+sl('p'+sd+'1',D.picks[sd][1],'pk',nm[1])+'</div></div>'};
+$('tnDS').innerHTML=tm(mySide,'Tu equipo')+'<div class="dmid"><small>'+esc(D.rn)+'</small><i>VS</i></div>'+tm(1-mySide,esc(D.names[1-mySide]));
+let ph;if(D.done)ph='LISTO · cargando la partida…';else{const who=mine?'Tu turno · '+secs+' s':(D.actor!=null?esc((D.hs[q[1]].find(p=>p.pid==D.actor)||{}).name||'?')+(D.hs[q[1]].find(p=>p.pid==D.actor)&&q[1]==mySide?' (tu compañero)':'')+' elige… '+secs+' s':esc(D.names[q[1]])+(q[1]==mySide?' (bot)':' (bot)')+' elige…');ph=(q[0]=='ban'?'BLOQUEO · ':'ELECCIÓN · ')+who}
+$('tnDP').innerHTML=ph;const ok=$('tnDOk');ok.style.visibility=mine?'visible':'hidden';ok.textContent=q&&q[0]=='ban'?'Bloquear personaje':'Elegir personaje';ok.disabled=!(mine&&OTDsel);
+ok.onclick=()=>{if(mine&&OTDsel&&OTW&&OTW.readyState==1){OTW.send(JSON.stringify({t:'dpick',mid:D.mid,el:OTDsel}));OTDsel=null;ok.disabled=true}}}
+setInterval(()=>{if(OT&&OTB&&OTB.st=='between')otRender();if(OT&&OTD&&!OTD.done&&OTD.left>0)otDrRender()},1000);
 function tnSave(){try{sessionStorage.setItem('ectf_tn',JSON.stringify(TN))}catch(e){}}
 function tnClear(){TN=null;try{sessionStorage.removeItem('ectf_tn')}catch(e){}}
 function tnMine(){return TN.rounds[TN.r].find(m=>m[0]==0||m[1]==0)}
@@ -1846,13 +1859,16 @@ ws.onclose=()=>{if(!NC.starting){$('nMsg').textContent='Desconectado del servido
 ws.onerror=()=>{$('nMsg').textContent='No se pudo conectar al servidor (¿está encendido? ¿ws:// o wss:// correcto?)'}};
 function lobMsg(m){if(m.t=='welcome'){NC.pid=m.pid;NC.token=m.token}else if(m.t=='err'){$('nMsg').textContent=m.m}else if(m.t=='lobby'){NC.lob=m;drawLobby()}else if(m.t=='tn0'){NC.starting=1;try{sessionStorage.setItem('ectf_ot',JSON.stringify({url:NC.url,room:NC.room,pid:NC.pid,token:NC.token}))}catch(e){}location.reload()}
 else if(m.t=='start'){NC.starting=1;try{sessionStorage.setItem('ectf_net',JSON.stringify({url:NC.url,room:NC.room,pid:NC.pid,token:NC.token,start:m}))}catch(e){}location.reload()}}
-function drawLobby(){const L=NC.lob,mp=L.players.find(p=>p.pid==NC.pid);if(!mp)return;$('netC').style.display='none';$('netL').style.display='';$('nRoomT').textContent=(L.mode=='tn'?'Torneo online · ':'')+'Sala: '+NC.room+' · '+L.players.length+' jugador(es)';
+function drawLobby(){const L=NC.lob,mp=L.players.find(p=>p.pid==NC.pid);if(!mp)return;$('nMsg').textContent='';$('netC').style.display='none';$('netL').style.display='';$('nRoomT').textContent=(L.mode=='tn'?'Torneo online · ':'')+'Sala: '+NC.room+' · '+L.players.length+' jugador(es)';
 const col=t=>'<div><h4 style="margin:4px;color:'+(t?'#b03aff':'#f5d90a')+'">'+(t?'Violeta':'Amarillo')+'</h4>'+L.players.filter(p=>p.team==t).map(p=>'<div>'+esc(p.name)+(p.pid==L.host?' 👑':'')+(p.pid==NC.pid?' (vos)':'')+' · <b>'+EL[p.el].n+'</b></div>').join('')+'</div>';
-if(L.mode=='tn'){$('nTeams').style.cssText='display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:8px 0;max-width:720px';$('nTeams').innerHTML=[0,1,2,3,4,5,6,7].map(t=>'<div style="min-width:150px;padding:6px 8px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid '+(t==mp.team?'#ffd23d':'#3a4560')+'"><h4 style="margin:2px;color:#ffd23d">Equipo '+(t+1)+'</h4>'+(L.players.filter(p=>p.team==t).map(p=>'<div style="font-size:13px">'+esc(p.name)+(p.pid==L.host?' 👑':'')+(p.pid==NC.pid?' (vos)':'')+' · <b>'+EL[p.el].n+'</b></div>').join('')||'<div style="font-size:12px;opacity:.5">Bots</div>')+'</div>').join('')}else{$('nTeams').style.cssText='display:flex;gap:30px;justify-content:center;margin:8px 0';$('nTeams').innerHTML=col(0)+col(1)}$('nOpts').style.display=L.mode=='tn'?'none':'';$('nStart').textContent=L.mode=='tn'?'Empezar torneo':'Empezar partida';
+if(L.mode=='tn'){const tnL=L.mode=='tn',hostN=(L.players.find(p=>p.pid==L.host)||{}).name||'';$('nTeams').style.cssText='display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:8px auto;max-width:880px';
+const card=t=>{const ps=L.players.filter(p=>p.team==t).sort((a,b)=>a.pid-b.pid),row=j=>{const p=ps[j];return'<div class="tr'+(p&&p.pid==NC.pid?' me':'')+(p?'':' nd')+'" data-jt="'+t+'" style="cursor:pointer">'+tnFlag(p?(p.pid==NC.pid?'#f5d90a':'#4ade80'):'#8a93a8')+'<span>'+(p?esc(p.name)+(p.pid==L.host?' 👑':'')+(p.pid==NC.pid?' (vos)':''):'Libre · lo juega un bot')+'</span></div>'};
+return'<div class="tm'+(t==mp.team?' cur':'')+'" style="min-width:200px"><div class="tr nd" style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;opacity:.75;cursor:default">Equipo '+(t+1)+'</div>'+row(0)+row(1)+'</div>'};
+$('nTeams').innerHTML='<div style="width:100%;text-align:center"><div class="tpn tttl"><small>Torneo online · sala '+esc(NC.room)+'</small><b>Elegí tu equipo</b></div><p style="margin:0 0 6px;opacity:.8;font-size:14px">Tocá un lugar libre para unirte. Cada equipo es de 2 y los lugares vacíos los juegan bots.<br>Cuando el anfitrión empiece: emparejamientos → baneos y picks → partida.</p></div>'+[0,1,2,3,4,5,6,7].map(card).join('')}else{$('nTeams').style.cssText='display:flex;gap:30px;justify-content:center;margin:8px 0';$('nTeams').innerHTML=col(0)+col(1)}$('nOpts').style.display=L.mode=='tn'?'none':'';$('nElsL').style.display=$('nEls').style.display=$('nTeamW').style.display=L.mode=='tn'?'none':'';$('nStart').textContent=L.mode=='tn'?'Empezar torneo':'Empezar partida';
 const taken=new Set(L.players.filter(p=>p.team==mp.team&&p.pid!=NC.pid).map(p=>p.el));
 $('nEls').innerHTML='<div class="ncur">'+faceSVG(mp.el)+'<span><small style="opacity:.7">Tu personaje</small><br><b style="font-size:20px">'+EL[mp.el].n+'</b></span></div><br><button data-pick="1">Elegir personaje</button>';if(selMode=='net'&&$('sel').style.display=='flex')selNetRefresh();
 const host=L.host==NC.pid;$('nBots').checked=L.opts.bots;$('nTS').value=L.opts.ts;$('nBots').disabled=$('nTS').disabled=!host;$('nStart').style.display=host?'':'none'}
-$('nEls').onclick=e=>{if(e.target.dataset&&e.target.dataset.pick)openSelNet()};
+$('nEls').onclick=e=>{if(e.target.dataset&&e.target.dataset.pick)openSelNet()};$('nTeams').onclick=e=>{const r=e.target.closest&&e.target.closest('[data-jt]');if(r&&NC.lob&&NC.lob.mode=='tn')nsend({t:'set',team:+r.dataset.jt})};
 $('nTeam').onclick=()=>{const L=NC.lob,mp=L&&L.players.find(p=>p.pid==NC.pid);if(!mp)return;if(L.mode=='tn'){for(let k=1;k<8;k++){const t=(mp.team+k)%8;if(L.players.filter(p=>p.team==t).length<2){nsend({t:'set',team:t});return}}}else nsend({t:'set',team:1-mp.team})};
 $('nBots').onchange=()=>nsend({t:'opts',bots:$('nBots').checked});$('nTS').onchange=()=>nsend({t:'opts',ts:+$('nTS').value});$('nStart').onclick=()=>nsend({t:'start'});
 if(NET){show('');(ov.firstElementChild.className='',ov.firstElementChild).innerHTML='<h1>Esperando a los demás jugadores...</h1>';ov.style.display='flex';
@@ -1943,7 +1959,7 @@ if(!L.length){spEl.style.display='none';return null}
 SPi=((SPi%L.length)+L.length)%L.length;const t=L[SPi];
 spEl.innerHTML='<div style="font-size:10px;letter-spacing:.2em;opacity:.65;font-weight:700">OBSERVANDO A TU COMPAÑERO</div><span style="color:#ffe55c">'+esc(t.name||'?')+'</span>'+(L.length>1?'<div style="font-size:10px;opacity:.6;font-weight:700;letter-spacing:.15em">CLICK PARA CAMBIAR</div>':'');spEl.style.display='block';return t}
 addEventListener('mousedown',e=>{if(e.button==0&&me&&me.dead>0&&started&&!over)SPi++});
-let camD=7,opLast=1;let last=performance.now();
+let camD=7,opLast=1,HUDT=0;let last=performance.now();
 (function loop(n){requestAnimationFrame(loop);const dt=Math.min(.05,(n-last)/1000);last=n;if(started)stepAll(dt);{const a=aimPt(),dx=a[0]-me.x,dz=a[2]-me.z,dd=Math.hypot(dx,dz),k=dd>22?22/dd:1;rt.position.set(me.x+dx*k,.15,me.z+dz*k);rt.visible=started}
 const ct=specTgt()||me;const cp=Math.cos(pitch),sn=Math.sin(pitch),rx=Math.cos(yaw)*1.2,rz=-Math.sin(yaw)*1.2,py=1.7+(ct.y||0),px=ct.x+rx,pz=ct.z+rz;
 let tgt=7;const bx=Math.sin(yaw)*cp,by=-sn,bz=Math.cos(yaw)*cp;
@@ -1957,6 +1973,6 @@ for(const h of RC.intersectObjects(OB,true)){let r=h.object;while(r.parent&&r.pa
 if(ct.fl)for(const o of OB)hit.add(o);
 for(const r of hit)if(!FD.has(r))FD.set(r,1);
 for(const [r,v] of FD){const nv=hit.has(r)?Math.max(.15,v-dt*5):Math.min(1,v+dt*3);if(nv!==v)setObjOp(r,nv);if(nv>=1&&!hit.has(r))FD.delete(r);else FD.set(r,nv)}}
-{const op=camD<2.6?Math.max(.12,(camD-1.1)/1.5):1;if(Math.abs(op-opLast)>.01){opLast=op;me.g.traverse(m=>{if(m.isMesh&&m!==me.sm){m.material.transparent=op<1;m.material.opacity=op;m.material.needsUpdate=true}})}}for(const f of MAPT)f(dt,n/1000);{const ig=!!(started||over||PAUSED);if(ig!==loop.ig){loop.ig=ig;document.body.classList&&document.body.classList.toggle('ig',ig)}}pvTick(dt);hud();R.render(S,cam)})(last);
+{const op=camD<2.6?Math.max(.12,(camD-1.1)/1.5):1;if(Math.abs(op-opLast)>.01){opLast=op;me.g.traverse(m=>{if(m.isMesh&&m!==me.sm){m.material.transparent=op<1;m.material.opacity=op;m.material.needsUpdate=true}})}}for(const f of MAPT)f(dt,n/1000);{const ig=!!(started||over||PAUSED);if(ig!==loop.ig){loop.ig=ig;document.body.classList&&document.body.classList.toggle('ig',ig)}}pvTick(dt);if(n-HUDT>45){HUDT=n;hud()}R.render(S,cam)})(last);
 </script><!-- mapas: bosque, desierto, montañas -->
 </body></html>
